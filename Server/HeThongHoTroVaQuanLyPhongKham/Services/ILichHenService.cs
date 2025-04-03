@@ -11,9 +11,11 @@ namespace HeThongHoTroVaQuanLyPhongKham.Services
             int? maNhanVien = null,
             int? maPhong = null
         );
+        Task<IEnumerable<LichHenDTO>> GetAllAsync();
         Task<LichHenDTO> UpdateTrangThaiAsync(LichHenUpdateDTO dto);
         Task<LichHenDTO> AddForPatientAsync(LichHenCreateDTO dto);
         Task<LichHenDTO> UpdateAsync(LichHenForUpdateDTO dto);
         Task<LichHenDTO> GetByMaBenhNhan(int maBenhNhan);
+        Task ProcessLichHenMessage(LichHenMessageDTO message);
     }
 }

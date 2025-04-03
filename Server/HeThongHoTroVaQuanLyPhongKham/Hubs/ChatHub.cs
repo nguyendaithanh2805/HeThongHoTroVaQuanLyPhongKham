@@ -104,7 +104,7 @@ namespace HeThongHoTroVaQuanLyPhongKham.Hubs
                 }
                 catch (NotFoundException)
                 {
-                    // Không phải bệnh nhân, không cần xử lý thêm
+                    throw;
                 }
             }
 
@@ -141,7 +141,7 @@ namespace HeThongHoTroVaQuanLyPhongKham.Hubs
             }
             catch (NotFoundException)
             {
-                // Không tìm thấy bệnh nhân, không làm gì
+                throw;
             }
         }
 
