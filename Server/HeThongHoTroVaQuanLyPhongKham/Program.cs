@@ -12,6 +12,7 @@ using HeThongHoTroVaQuanLyPhongKham.Services;
 using HeThongHoTroVaQuanLyPhongKham.Services.DonThuocChiTiet;
 using HeThongHoTroVaQuanLyPhongKham.Services.HashPassword;
 using HeThongHoTroVaQuanLyPhongKham.Services.KetQuaDieuTri;
+using HeThongHoTroVaQuanLyPhongKham.Workers;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -95,6 +96,10 @@ builder.Services.AddScoped<IMLService, MLService>();
 
 // Đăng ký IPasswordHasher
 builder.Services.AddScoped<IPasswordHasher, BCryptPasswordHasher>();
+
+// RabbitMQ
+builder.Services.AddSingleton<IRabbitMQService, RabbitMQService>();
+builder.Services.AddHostedService<LichHenConsumer>();
 
 // Cấu hình CORS
 // Tai lieu tham khao: https://learn.microsoft.com/en-us/aspnet/core/security/cors?view=aspnetcore-9.0

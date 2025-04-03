@@ -11,6 +11,12 @@ export interface ChatMessage {
   isStaff: boolean;
 }
 
+export interface LichHenUpdate {
+  maBenhNhan: number;
+  status: string;
+  message: string;
+}
+
 @Injectable({
   providedIn: 'root'
 })
@@ -21,12 +27,14 @@ export class ChatService {
   private activePatientsSubject = new BehaviorSubject<number[]>([]);
   private chatPatientsSubject = new BehaviorSubject<number[]>([]);
   private connectionStateSubject = new BehaviorSubject<boolean>(false);
+  private lichHenUpdateSubject = new BehaviorSubject<LichHenUpdate | null>(null); // Thêm để xử lý thông báo lịch hẹn
 
   public messages$ = this.messagesSubject.asObservable();
   public notification$ = this.notificationSubject.asObservable();
   public activePatients$ = this.activePatientsSubject.asObservable();
   public chatPatients$ = this.chatPatientsSubject.asObservable();
   public connectionState$ = this.connectionStateSubject.asObservable();
+  public lichHenUpdate$ = this.lichHenUpdateSubject.asObservable(); // Observable cho thông báo lịch hẹn
 
   constructor(private authService: AuthService) {
     this.hubConnection = new signalR.HubConnectionBuilder()
@@ -81,6 +89,12 @@ export class ChatService {
       this.hubConnection.on('Error', (error: string) => {
         console.error('SignalR Error:', error);
       });
+
+      // Xử lý thông báo lịch hẹn từ backend
+      this.hubConnection.on('ReceiveLichHenUpdate', (update: LichHenUpdate) => {
+        console.log('Received LichHenUpdate:', update);
+        this.lichHenUpdateSubject.next(update);
+      });
     } catch (err) {
       console.error('Error connecting to SignalR:', err);
       this.connectionStateSubject.next(false);
@@ -106,11 +120,12 @@ export class ChatService {
     console.log('Disconnected from SignalR');
   }
 
-  public async sendMessageToStaff(maBenhNhan: number, message: string) {
+  public async sendMessageToStaff(maTaiKhoan: number, message: string) {
     try {
-      await this.hubConnection.invoke('SendMessageToStaff', maBenhNhan, message);
+      await this.hubConnection.invoke('SendMessageToStaff', maTaiKhoan, message);
     } catch (err) {
       console.error('Error sending message to staff:', err);
+      throw err;
     }
   }
 

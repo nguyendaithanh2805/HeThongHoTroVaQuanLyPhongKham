@@ -25,8 +25,10 @@ namespace HeThongHoTroVaQuanLyPhongKham.Services
         private readonly IHoaDonService _hoaDonService;
         private readonly IRepository<TblHoSoYTe> _hoSoYTeRepository;
         private readonly IMapper<HoaDonDTO, TblHoaDon> _hoaDonMapping;
+        private readonly IRabbitMQService _rabbitMQService;
+        private static readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
 
-        public LichHenService(IRepository<TblLichHen> lichHenRepository, IMapper<LichHenDTO, TblLichHen> lichHenMapping, IRepository<TblBenhNhan> benhNhanRepository, IService<NhanVienDTO> nhanVienService, IRepository<TblDichVuYTe> dichVuYTeRepository, IService<PhongKhamDTO> phongKhamService, IJwtService jwtService, IRepository<TblHoaDon> hoaDonRepository, IRepository<TblDonThuoc> donThuocRepository, IHoaDonService hoaDonService, IRepository<TblHoSoYTe> hoSoYTeRepository, IMapper<HoaDonDTO, TblHoaDon> hoaDonMapping)
+        public LichHenService(IRepository<TblLichHen> lichHenRepository, IMapper<LichHenDTO, TblLichHen> lichHenMapping, IRepository<TblBenhNhan> benhNhanRepository, IService<NhanVienDTO> nhanVienService, IRepository<TblDichVuYTe> dichVuYTeRepository, IService<PhongKhamDTO> phongKhamService, IJwtService jwtService, IRepository<TblHoaDon> hoaDonRepository, IRepository<TblDonThuoc> donThuocRepository, IHoaDonService hoaDonService, IRepository<TblHoSoYTe> hoSoYTeRepository, IMapper<HoaDonDTO, TblHoaDon> hoaDonMapping, IRabbitMQService rabbitMQService)
         {
             _lichHenRepository = lichHenRepository;
             _lichHenMapping = lichHenMapping;
@@ -40,27 +42,13 @@ namespace HeThongHoTroVaQuanLyPhongKham.Services
             _hoaDonService = hoaDonService;
             _hoSoYTeRepository = hoSoYTeRepository;
             _hoaDonMapping = hoaDonMapping;
+            _rabbitMQService = rabbitMQService;
         }
 
         public Task<LichHenDTO> AddAsync(LichHenDTO dto)
         {
             throw new NotImplementedException();
         }
-
-        //public async Task<LichHenDTO> AddAsync(LichHenDTO dto)
-        //{
-        //    var benhNhan = await _benhNhanRepository.FindByIdAsync(dto.MaBenhNhan, "MaBenhNhan");
-        //    if (benhNhan is null)
-        //        throw new NotFoundException($"Bệnh nhân với ID [{dto.MaBenhNhan}] không tồn tại.");
-
-        //    await _nhanVienService.GetByIdAsync(dto.MaNhanVien);
-        //    await _dichVuYTeService.GetByIdAsync(dto.MaDichVuYTe);
-        //    await _phongKhamService.GetByIdAsync(dto.MaPhongKham);
-
-        //    return _lichHenMapping.MapEntityToDto(
-        //        await _lichHenRepository.CreateAsync(
-        //            _lichHenMapping.MapDtoToEntity(dto)));
-        //}
 
         public async Task<LichHenDTO> AddForPatientAsync(LichHenCreateDTO dto)
         {
@@ -72,23 +60,68 @@ namespace HeThongHoTroVaQuanLyPhongKham.Services
             if (maTaiKhoan == null)
                 throw new UnauthorizedAccessException("Không thể xác định mã tài khoản từ token.");
 
-            var benhNhan = await _benhNhanRepository.GetQueryable()
-                .FirstOrDefaultAsync(bn => bn.MaTaiKhoan == maTaiKhoan.Value);
+            var benhNhan = _benhNhanRepository.GetQueryable()
+                .FirstOrDefault(bn => bn.MaTaiKhoan == maTaiKhoan.Value);
             if (benhNhan is null)
                 throw new NotFoundException($"Bệnh nhân với mã tài khoản [{maTaiKhoan}] không tồn tại (chưa đăng ký tài khoản).");
 
-            var lichHen = new TblLichHen
+            var lichHenMessage = new LichHenMessageDTO
             {
-                MaDichVuYte = dto.MaDichVuYTe,
+                MaDichVuYTe = dto.MaDichVuYTe,
                 NgayHen = dto.NgayHen,
-                MaBenhNhan = benhNhan.MaBenhNhan,
-                MaNhanVien = null,
-                MaPhongKham = null,
-                TrangThai = "Chờ xác nhận"
+                MaBenhNhan = benhNhan.MaBenhNhan
             };
 
-            return _lichHenMapping.MapEntityToDto(
-                await _lichHenRepository.CreateAsync(lichHen));
+            _rabbitMQService.SendMessage(lichHenMessage);
+
+            return new LichHenDTO
+            {
+                MaDichVuYTe = dto.MaDichVuYTe,
+                NgayHen = dto.NgayHen,
+                MaBenhNhan = benhNhan.MaBenhNhan,
+                TrangThai = "Đang xử lý"
+            };
+        }
+
+        public async Task ProcessLichHenMessage(LichHenMessageDTO message)
+        {
+            const int MAX_APPOINTMENTS_PER_SLOT = 5;
+
+            // Synchronize access to the critical section
+            await _semaphore.WaitAsync();
+            try
+            {
+                // Check the current number of appointments
+                var currentAppointments = _lichHenRepository.GetQueryable()
+                    .Count(lh => lh.MaDichVuYte == message.MaDichVuYTe && lh.NgayHen == message.NgayHen);
+
+                if (currentAppointments >= MAX_APPOINTMENTS_PER_SLOT)
+                    throw new InvalidOperationException("Đã đạt giới hạn số lượng lịch hẹn cho khung giờ này.");
+
+                // Check for duplicate patient appointment
+                var existingLichHen = _lichHenRepository.GetQueryable()
+                    .FirstOrDefault(lh => lh.MaDichVuYte == message.MaDichVuYTe
+                                       && lh.NgayHen == message.NgayHen
+                                       && lh.MaBenhNhan == message.MaBenhNhan);
+                if (existingLichHen != null)
+                    throw new InvalidOperationException("Bệnh nhân này đã có lịch hẹn cho dịch vụ này vào thời điểm này.");
+
+                var lichHen = new TblLichHen
+                {
+                    MaDichVuYte = message.MaDichVuYTe,
+                    NgayHen = message.NgayHen,
+                    MaBenhNhan = message.MaBenhNhan,
+                    MaNhanVien = null,
+                    MaPhongKham = null,
+                    TrangThai = "Chờ xác nhận"
+                };
+
+                await _lichHenRepository.CreateAsync(lichHen);
+            }
+            finally
+            {
+                _semaphore.Release();
+            }
         }
 
         public async Task DeleteAsync(int id)
@@ -331,6 +364,12 @@ namespace HeThongHoTroVaQuanLyPhongKham.Services
             return _lichHenMapping.MapEntityToDto( 
                 await _lichHenRepository.GetQueryable()
                 .FirstOrDefaultAsync(lh => lh.MaBenhNhan == maBenhNhan));
+        }
+
+        public async Task<IEnumerable<LichHenDTO>> GetAllAsync()
+        {
+            var lichHens = await _lichHenRepository.FindAllAsync("MaLichHen");
+            return lichHens.Select(lh => _lichHenMapping.MapEntityToDto(lh));
         }
     }
 }

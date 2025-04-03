@@ -72,5 +72,17 @@
         <button type="button" class="btn btn-secondary" (click)="lichHenForm.reset()">Hủy</button>
       </div>
     </form>
+
+    <!-- Hiển thị thông báo từ SignalR -->
+    <div *ngIf="lichHenUpdateMessage" class="alert alert-info mt-3">
+      {{ lichHenUpdateMessage }}
+    </div>
+
+    <!-- Nút gửi tin nhắn đến nhân viên -->
+    <div class="form-group1 mt-3">
+      <button class="btn btn-primary" (click)="sendMessageToStaff('Tôi cần hỗ trợ về lịch hẹn vừa đặt.')">
+        Gửi tin nhắn đến nhân viên
+      </button>
+    </div>
   </div>
 </div>
